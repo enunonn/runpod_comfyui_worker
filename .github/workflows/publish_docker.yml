@@ -18,6 +18,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Lowercase Docker Username
+        id: sanitize
+        run: |
+          echo "username=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
@@ -26,6 +31,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/comfy-runpod:latest
+          tags: ${{ steps.sanitize.outputs.username }}/comfy-runpod:latest
           build-args: |
             CIVITAI_API_TOKEN=${{ secrets.CIVITAI_API_TOKEN }}
