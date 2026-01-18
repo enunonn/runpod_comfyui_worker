@@ -1,57 +1,52 @@
-# Runpod ComfyUI Worker (Lightweight Version)
+# Runpod ComfyUI Worker (All-in-One Version)
 
-이 프로젝트는 거대한 모델 파일들을 이미지에 포함시키지 않는 **경량화된 버전**입니다.
-Runpod의 **Network Volume** 기능을 사용하여 모델을 따로 관리하는 것이 효율적입니다.
+이 프로젝트는 사용자의 요청에 따라 **모든 모델을 Docker 이미지에 포함시키는 버전**입니다.
+가장 빠르고 간편하게 Serverless를 이용할 수 있지만, 이미지 크기가 매우 커서 GitHub Actions 무료 버전으로는 빌드가 불가능합니다.
+따라서 **Runpod의 GPU 인스턴스를 빌려서 빌드**해야 합니다.
 
-## 🚀 배포 및 설정 가이드
+## 🚀 배포 방법: Runpod에서 직접 빌드하기
 
-### 1. GitHub로 코드 업데이트
-GitHub Actions 없이 Runpod에서 직접 빌드되도록 변경했습니다. 코드를 푸시하세요.
+이 방법은 확실하고 강력합니다. 10~20분 정도 소요되며 비용은 몇백 원 정도입니다.
+
+### 1단계: Runpod에서 빌드용 Pod 생성
+1. **Runpod Console** > **Pods** > **Deploy**.
+2. **GPU 선택**: 아무거나 싼 걸로 고르세요 (RTX 3070, 4090 등).
+3. **Template**: `runpod/docker-in-docker` (또는 그냥 `Ubuntu`도 되지만 docker가 있는지 확인 필요)
+   - *팁: `runpod/stable-diffusion:comfy-ui` 같은 걸 써도 되지만, Docker가 깔려 있어야 합니다. 그냥 기본 `runpod/base` 추천.*
+4. **Volume Disk**: **100GB 이상**으로 설정하세요. (이미지 만들다가 터질 수 있습니다)
+
+### 2단계: 소스 코드 가져오기 및 빌드
+Pod가 실행되면 **Connect > Web Terminal** 또는 JupyterLab 터미널을 엽니다.
+
 ```bash
-git add .
-git commit -m "Optimize: Remove heavy models from build"
-git push origin main
+# 1. 소스 코드 복제
+git clone https://github.com/본인아이디/comfy_runpod.git
+cd comfy_runpod
+
+# 2. Docker 로그인 (DockerHub에 올리기 위해)
+docker login
+# 아이디와 비번을 입력하세요.
+
+# 3. 이미지 빌드 및 푸시
+# (Civitai 토큰은 빌드 인자로 넘겨줍니다)
+export CIVITAI_TOKEN="본인의_토큰_값"
+docker build -t 본인아이디/comfy-runpod:v1 --build-arg CIVITAI_API_TOKEN=$CIVITAI_TOKEN .
+
+# 4. 푸시
+docker push 본인아이디/comfy-runpod:v1
 ```
 
-### 2. Runpod 설정 (중요!)
+### 3단계: Serverless Endpoint 생성
+빌드가 끝나고 푸시가 완료되면 Pod는 삭제(Terminate)해도 됩니다.
 
-**2-1. Network Volume 생성**
-1. Runpod Console > **Network Volume** > **Create**.
-2. 이름: `comfy-models` (예시)
-3. 크기: **50GB 이상** (모델들이 큽니다)
-4. Data Center: Serverless Worker를 실행할 지역과 **동일하게** 선택.
+1. **Runpod Serverless** > **New Endpoint**.
+2. **Container Image**: 방금 푸시한 이미지 (`본인아이디/comfy-runpod:v1`) 입력.
+3. **Container Disk**: 20GB 정도면 충분 (모델이 이미지 안에 있으므로).
+4. **Deploy!**
 
-**2-2. 템플릿 생성 (Template)**
-1. **Templates** > **New Template**.
-2. **Container Image**: Runpod의 Git Import 기능 사용 혹은 (추후 빌드될 이미지 주소).
-   - 지금은 "Docker Hub" 이미지가 없으므로, Step 3에서 Serverless 생성 시 **"Import Git Repository"**를 씁니다.
-3. **Environment Variables**:
-   - `CIVITAI_API_TOKEN`: 본인의 Civitai 토큰 입력.
+이제 Cold Start가 조금 걸릴 수 있지만(이미지가 커서), 일단 뜨고 나면 모델 다운로드 없이 즉시 실행됩니다.
 
-### 3. 모델 다운로드 (최초 1회만 수행)
-Serverless Worker는 켜졌다 꺼지므로, 모델 다운로드를 매번 하면 요금이 많이 나옵니다.
-**일반 Pod**를 잠시 띄워서 볼륨에 모델을 받아두는 것을 추천합니다.
-
-1. **Pods** > **Deepploy** (GPU 아무거나, 싼 걸로).
-2. **Volume Mount**: 위에서 만든 `comfy-models`를 `/ComfyUI/models` 경로에 마운트합니다. (★ 중요)
-   - Mount Path: `/ComfyUI/models`
-3. 컨테이너가 뜨면 `Jupyter Lab` 또는 `Web Terminal` 접속.
-4. Git Clone 후 다운로드 스크립트 실행:
-   ```bash
-   cd /
-   git clone https://github.com/본인아이디/comfy_runpod.git
-   cd comfy_runpod
-   export CIVITAI_API_TOKEN=토큰값
-   python download_models.py
-   ```
-   *참고: `/ComfyUI/models`가 볼륨에 연결되어 있으므로, 여기에 다운로드된 파일은 영구 보존됩니다.*
-5. 다운로드 완료 후 Pod **삭제 (Terminate)**.
-
-### 4. Serverless 실행
-1. **Serverless** > **New Endpoint**.
-2. **Import Git Repository**: 이 레포지토리 선택.
-3. **Network Volume**: 아까 만든 `comfy-models` 선택.
-4. **Mount Path**: `/ComfyUI/models`
-5. 배포!
-
-이제 이미지가 가볍기 때문에 빌드가 1~2분 안에 끝나고, 모델은 이미 볼륨에 있으므로 실행 즉시 사용 가능합니다.
+## 📁 주요 파일
+- `Dockerfile`: 모든 모델을 포함하도록 구성됨.
+- `handler.py`: Runpod Serverless 요청을 처리하는 파이썬 스크립트.
+- `entrypoint.sh`: ComfyUI를 띄우고 핸들러를 실행하는 시작 스크립트.
